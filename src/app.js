@@ -39,7 +39,7 @@ const {
   urlencodedBodyLimit,
 } = require('./middleware/bodySizeLimits');
 const { performHealthChecks, performReadinessChecks } = require('./services/health');
-const { validateHealthQuery, rejectBodyOnGet } = require('./schemas/health');
+const { createHealthHandler } = require('./utils/healthHandler');
 const responseHelper = require('./utils/responseHelper');
 const logger = require('./logger');
 const { metricsAuth, metricsHandler } = require('./metrics');
@@ -159,7 +159,7 @@ function createApp() {
   // ── Health / Liveness / Readiness ──────────────────────────────────────
 
   // Liveness probe — no external dependencies
-  app.get('/health', rejectBodyOnGet, validateHealthQuery, (req, res) => {
+  app.get('/health', (req, res) => {
     res.json({
       status: 'ok',
       service: 'liquifact-api',
@@ -169,7 +169,7 @@ function createApp() {
   });
 
   // Liveness alias (Kubernetes convention)
-  app.get('/healthz', rejectBodyOnGet, validateHealthQuery, (req, res) => {
+  app.get('/healthz', (req, res) => {
     res.json({
       status: 'ok',
       service: 'liquifact-api',
@@ -179,48 +179,10 @@ function createApp() {
   });
 
   // Full health check (all dependencies)
-  app.get('/ready', rejectBodyOnGet, validateHealthQuery, async (req, res) => {
-    try {
-      const { healthy, checks } = await performHealthChecks();
-      const status = healthy ? 200 : 503;
-
-      res.status(status).json({
-        ready: healthy,
-        service: 'liquifact-api',
-        timestamp: new Date().toISOString(),
-        checks,
-      });
-    } catch (error) {
-      res.status(503).json({
-        ready: false,
-        service: 'liquifact-api',
-        timestamp: new Date().toISOString(),
-        error: error.message,
-      });
-    }
-  });
+  app.get('/ready', createHealthHandler(performHealthChecks));
 
   // Readiness probe (critical deps only: DB, Soroban RPC)
-  app.get('/readyz', rejectBodyOnGet, validateHealthQuery, async (req, res) => {
-    try {
-      const { healthy, checks } = await performReadinessChecks();
-      const status = healthy ? 200 : 503;
-
-      res.status(status).json({
-        ready: healthy,
-        service: 'liquifact-api',
-        timestamp: new Date().toISOString(),
-        checks,
-      });
-    } catch (error) {
-      res.status(503).json({
-        ready: false,
-        service: 'liquifact-api',
-        timestamp: new Date().toISOString(),
-        error: error.message,
-      });
-    }
-  });
+  app.get('/readyz', createHealthHandler(performReadinessChecks));
 
   // API info
   app.get('/api', (req, res) => {
